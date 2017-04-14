@@ -1,0 +1,442 @@
+%---------------------------------------------------
+% Nombre: capitulo1.tex  
+% 
+% Texto del capitulo 1
+%---------------------------------------------------
+
+\chapter{Desarrollo práctico}
+
+La práctica número 2 de la asignatura Gestión de Información en la Web (GIW), se centra en el análisis completo de la red social que podemos extraer de un medio social como por ejemplo Twitter. Concretamente, los objetivos de la práctica y los cuales iremos solventando o concluyendo en las siguientes secciones son los que podemos encontrar en la siguiente lista. 
+
+
+\begin{enumerate}
+\item Selección de un medio social, definición de una pregunta de investigación y obtención de un conjunto de datos asociado (sección \ref{problema}).
+\item Construcción de la red social on-line a analizar y visualizar (sección \ref{construccion}).
+\item Cálculo de los valores de las medidas de análisis (sección \ref{generales}).
+\item Determinación de las propiedades de la red (sección \ref{red}).
+\item Cálculo de los valores de las medidas de análisis de redes sociales (sección \ref{analisis}).
+\item Descubrimiento de comunidades en la red (sección \ref{comunidades}).
+\item Visualización de la red social (sección \ref{visualizacion}).
+\item Discusión de los resultados obtenidos (sección \ref{conclusiones}).
+\end{enumerate}
+
+
+\section{Problema a resolver}
+\label{problema}
+
+En esta primera sección, estudiaremos el medio social elegido para la elaboración de la práctica, la pregunta de investigación o estudio a solucionar durante el desarrollo de la misma y la obtención de los datos para dar respuesta a esta pregunta. 
+
+\subsection{Selección del medio social}
+
+El medio social elegido par la elaboración de la práctica es \textbf{Twitter}. Podría haber sido cualquier otro como por ejemplo\textit{ Facebook, Flickr o Youtube}, pero nos hemos decantado por este medio, ya que es el más factible y potencialmente útil para resolver la pregunta, no tanto de investigación pero si de interés comercial que introduciremos en el siguiente punto. 
+
+\subsection{Definición de la pregunta}
+
+Como ya introdujimos en el punto anterior la pregunta más que pregunta de investigación, será una pregunta de interés comercial real. En una marca del sector del aceite (\textbf{Oleum Hispania}) para la cual se están realizando labores de branding e identidad corporativa online, es necesario para promover el lanzamiento de una nueva gama de productos premium, la detección de comunidades e influencers del sector del aceite de oliva virgen extra y la cocina en Andalucía, a los cuales este producto se distribuirá primero favoreciendo por tanto que la asimilación por parte del resto de personas tenga más impacto cuando llegue la comercialización total del mismo. 
+
+\subsection{Obtención del conjunto de datos}
+\label{script}
+Para la obtención del conjunto de datos, ha sido realizada mediante un script en Python que permite usando la librería Tweepy \cite{tweepy} conectar a la API de twitter de manera simple y eficiente. El script usando puede verse en el siguiente fragmento de código:
+
+\vspace{10mm} 
+
+\lstset{language=R, breaklines=true, basicstyle=\footnotesize}
+\lstset{numbers=left, numberstyle=\tiny, stepnumber=1, numbersep=-2pt}
+\begin{lstlisting}
+
+if __name__ == '__main__':
+
+    auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+    auth.set_access_token(access_token, access_token_secret)
+    api = tweepy.API(auth)
+
+    now = time.strftime("%d-%m-%y-%H-%M-%S")
+
+    #Creamos los ficheros CSV que usaremos para cargar en gephi
+
+    csvFileTweets = open('tweets.csv', 'a')
+    csvFileUsers = open('users.csv', 'a')
+    csvFileEdges = open('edges.csv', 'a')
+
+
+    csvWriterTweets = csv.writer(csvFileTweets)
+    csvWriterUsers = csv.writer(csvFileUsers)
+    csvWriterEdges = csv.writer(csvFileEdges)
+
+    #Creamos un set para comprobar que no metamos usuarios repetidos
+
+    users = set()
+
+    csvWriterTweets.writerow(['ID', 'Usuario', 'Texto', 'Seguidores', 'Siguiendo', 'Favoritos Cuenta', 'RTs','Favoritos Tweet','Fecha', 'Localizacion'])
+    csvWriterUsers.writerow(['ID', 'Seguidores', 'Siguiendo', 'Favoritos Cuenta'])
+    csvWriterEdges.writerow(['Source', 'Target'])
+    #Con un cursor vamos a crear el primer csv de tweets y a llenar una estructura de tweets
+
+    for page in tweepy.Cursor(api.search,
+        q="#AOVE OR #AceiteDeOliva OR #evoo",
+        since="2012-09-01",
+        until="2017-04-01",
+        lang="es").pages(180):
+            for tweet in page:
+                #Escribimos filas en los ficheros CSV
+                csvWriterTweets.writerow([tweet.user.id,tweet.user.screen_name, tweet.text.encode('utf-8'), tweet.user.followers_count,
+                tweet.user.friends_count, tweet.user.favourites_count, tweet.retweet_count, tweet.favorite_count, tweet.created_at, tweet.user.location.encode('utf-8')])
+                completo = tweet.text.encode('utf-8')
+                troceado = completo.split()
+                if(tweet.user.screen_name not in users):
+                    users.add(tweet.user.screen_name)
+                    csvWriterUsers.writerow([tweet.user.screen_name, tweet.user.followers_count,tweet.user.friends_count, tweet.user.favourites_count])
+                #Obtenemos los RT
+                if( troceado[0] == 'RT'):
+                    csvWriterEdges.writerow([tweet.user.screen_name, troceado[1]])
+                #Obtenemos las menciones
+                elif('@' in completo):
+                    i=0
+                    while i < len(troceado):
+                        palabra=troceado[i]
+                        if (palabra[0]=='@' and troceado[i] in users):
+                            csvWriterEdges.writerow([tweet.user.screen_name, troceado[i]])
+                            break
+                        else:
+                            i+=1
+
+    csvFileTweets.close()
+    csvFileUsers.close()
+    csvFileEdges.close()
+
+
+\end{lstlisting}
+
+En el punto \ref{construccion} veremos una pequeña explicación del porque de este script y como hemos construido la red social. 
+
+\section{Construcción de la red social}
+\label{construccion}
+
+Tal y como podemos apreciar en el script visto en el punto \ref{script}, generamos 3 ficheros csv, a partir de los cuales generaremos nuestra red social. 
+
+\begin{itemize}
+\item Tweets.csv: Usado para almacenar los tuits de la temática con su información relevante tal como RTs, Favoritos, hora y localización para poder aplicar minería de textos sobre ellos en caso de ser requerido, aunque en nuestro caso no será necesario.
+\item Users.csv: Los usuarios serán los nodos de nuestra red. Obtendremos también información relevante de las cuentas como números de seguidores, o favoritos con el fin de poder dar respuesta a nuestra pregunta.
+\item Edges.csv: Será nuestro fichero de aristas. Este se genera cada vez que alguien hace un RT sobre un tuit de la temática o menciona a alguna otra cuenta en una discusión sobre la temática, generando una columna \textbf{Source} (el que hace RT o menciona) y \textbf{Target} (el que es retuiteado o mencionado). 
+\end{itemize}
+
+Con estos ficheros es por tanto fácil generar una red dirigida y ponderada que nos permita dar respuesta a la pregunta de quienes son los más influyentes del sector del AOVE. Podríamos haber optado por bajar alguna de las otras redes sociales que Twitter pone a nuestra disposición, como por ejemplo la red social de amistad generada alrededor de la cuenta de la marca, pero esto solo nos permitiría obtener influencers de nuestra red de amigos, y dado que no llevamos mucho tiempo controlando la cuenta, esta aunque tiene en su práctica totalidad seguidores y amigos relacionados con el sector del AOVE, aún es pequeña para obtener información relevante. 
+
+\section{Cálculo de los valores de análisis generales}
+\label{generales}
+
+Antes si cabe de comenzar con el análisis de nuestra red esta ya nos ofrece información relevante que es menester de analizar. Por ejemplo, la red completa, tiene un número de nodos 2119 y 946 uniones, ya que al ser ponderada estas se han reducido y aumentado su peso cada vez que una arista se daba dos o más veces. Estos valores, no nos van a permitir realizar un estudio de la red completa, debido a que el número de aristas es menor que el de nodos el grado medio es inferior a 1 lo que hará que valores como por ejemplo la \textbf{Daleatoria} nos ofrezcan valores negativos. La topología de la red, está diseñada por tanto para el análisis de la \textbf{componente gigante} de la misma debido a que si buscamos influencia y la topología de la red está formada de manera que se produce una unión siempre que haya una mención o RT de una cuenta a otra dentro del sector, nodos que no pertenezcan a esta componente gigante, querrán significar que aunque han tuiteado alguna vez sobre la temática no han tenido interacción con nadie del sector y por lo tanto con una interacción nula o prácticamente nula pueden ser descartados desde el inicio a ser influencers.  Es por ello, que nos centraremos en el análisis de la componente gigante de nuestra red. 
+
+Al final de esta sección podremos encontrar la tabla \ref{globales} que recoge todos los valores generales de nuestra red. Estos valores se han generado, una vez cargada la red en Gephi \cite{gephi} y aplicado el filtro correspondiente a la componente gigante, haciendo uso de las distintas métricas del apartado estadísticas, exceptuando las medidas \textbf{Dmedia} que ha sido calculada con la fórmula \ref{eq:Da} y \textbf{Caleatoria} que se ha calculado usando \ref{eq:Ca}.
+
+\begin{equation} 
+Daleatoria=\frac{ln(N)}{ln(k)}
+\label{eq:Da}
+\end{equation}
+
+\begin{equation} 
+Caleatoria=\frac{k}{N}
+\label{eq:Ca}
+\end{equation}
+
+
+Siguiendo con el estudio de la  \textbf{conectividad de la red}, la componente gigante tiene en nuestra red un total de \textbf{542 nodos} lo que corresponde a un 25,46\%del total de la red y \textbf{709 aristas} que correspondería con el 74,95\% de la red total. Si analizamos estos resultados, implican que prácticamente el 75\% de los usuarios que generan algún tipo de contenido sobre el AOVE, ni han retuiteado otro contenido de la temática ni han sido retuiteados por otros usuarios cuando ellos hablaban de la misma, por lo que estos nodos que se quedan fuera no son necesarios en nuestro análisis debido a que no tendrán influencia alguna en el sector de estudio. 
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\multicolumn{1}{|c|}{{\ul \textbf{Medida}}} & \multicolumn{1}{c|}{{\ul \textbf{Valor}}} \\ \hline
+Nodos                                       & 542                                       \\ \hline
+Enlaces                                     & 709                                      \\ \hline
+Densidad                                    & 0,002                                     \\ \hline
+Grado Medio                                 & 1,308                                    \\ \hline
+Diametro                                    & 11                                        \\ \hline
+Dmedia                                      &  4,036                                   \\ \hline
+Daleatoria                                  & 23,44                                     \\ \hline
+Coeficiente Clustering Medio                & 0,056                           \\ \hline
+Coeficiente Clustering Red Aleatoria        & 0,00241                                    \\ \hline
+\end{tabular}
+\caption{Valores globales}
+\label{globales}
+\end{table}
+
+\section{Determinación de las propiedades de la red}
+\label{red}
+
+Vamos a comenzar estudiando las distribuciones de grado de la red, para ello podemos obtener los informes directamente desde Gephi. En nuestro caso, al tener una red dirigida tendremos dos informes de grado, entrada (fig \ref{entrada}) y salida (fig \ref{salida}). En estos gráficos podemos apreciar como, aunque algún nodo tiene alguna pequeña fluctuación, se cumple la ley de la potencia, que nos dice que habrá un número pequeño de nodos con un grado alto y un número mayor de nodos con un grado bajo. Podemos concluir por tanto que estamos ante una red \textbf{libre de escala}.
+
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.5]{./Capitulo1/Imagenes/in.png}
+		\caption{Distribución grado de salida.}
+	\label{entrada}
+\end{figure}
+
+Respecto a la cohesión de la red, en la figura \ref{clus} tenemos el gráfico en el que podemos ver la distribución del indice de cluster de la misma. Podemos ver que la gran mayoría de los nodos no están unidos a los demás, aunque hay concretamente 3 con un coeficiente de cluster 1, que indica que están unidos casi a la totalidad de los otros. 
+
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.5]{./Capitulo1/Imagenes/out.png}
+		\caption{Distribución grado de salida.}
+	\label{salida}
+\end{figure}
+
+
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.4]{./Capitulo1/Imagenes/cluster.png}
+		\caption{Distribución clustering.}
+	\label{clus}
+\end{figure}
+
+
+Respecto a si la red es un mundo pequeño, podemos concluir que no lo es, debido a que para que lo fuera, \textbf{Cmedio} debe ser significativamente más alto que \textbf{Caleatorio}, y las distancias \textbf{Dmedia} y \textbf{Daleatoria} deben ser similares. En el caso de nuestro problema, los coeficientes de clustering son muy similares (0,056 y 0,00241)y las distancias tienen una diferencia estadísticamente significativa de casi 20 puntos por lo que concluimos que no es una red de mundo pequeño. 
+
+\section{Cálculo de medidas de análisis de redes sociales}
+\label{analisis}
+
+Dado que estamos ante un problema en el que buscamos obtener los nodos más influyentes de la temática en nuestra red, se hace necesario un estudio de las medidas de redes sociales. Algunas de estas son las mediadas grado, intermediación, cercanía y vector propio. Dado nuestro problema, nos quedaremos con las medidas más interesantes como son, grado de entrada, cercanía e intermediación. 
+
+\subsection{Grado de entrada}
+
+En el análisis de redes sociales y tal y como Zafarini plantea en \cite{zafa}, el grado de entrada en el análisis de influencia es un factor muy relevante ya que mide la \textbf{audiencia} de un determinado nodo (usuario) en nuestra red. En nuestro caso, este factor mide cuantas veces un nodo ha sido RT cuando hablaba de la temática por lo que su beneficio es más que obvio.
+
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.4]{./Capitulo1/Imagenes/grado.png}
+		\caption{Grado de entrada.}
+	\label{grado}
+\end{figure}
+
+Para obtener una mejor visualización al igual que haremos después con la intermediación, daremos color y tamaño a los nodos en función grado de entrada. Tras lo cual obtendremos el gráfico que podemos ver en la figura \ref{grado}. 
+
+Acorde al grado, tenemos algunas marcas relevantes del sector, pero estas no nos interesan. También tenemos algunos nodos interesantes como \textbf{@recetasdenoe} , \textbf{@sanomanjar} o  \textbf{@byjuliaserrano} canales de cocina que parece que tienen mucha interacción y repercusión con el sector del AOVE. 
+
+
+\subsection{Intermediación}
+
+La intermediación mide cuantas veces un nodo aparece en un camino entre otros nodos. Habrá algunos que solo son necesarios en ciertas ocasiones, otros que casi siempre aparecerán en el camino y por otro lado, algunos que  conectarán zonas de la red con otras zonas que de otra manera no estarían conectadas. Debemos dejar claro que en el caso de twiiter, \textbf{el flujo de información es contrario al flujo de RTs}, por lo que deberemos tener esto en cuenta a la hora de analizar nuestra red. 
+
+En nuestro caso concreto, esta medida es útil porque buscamos llegar con el producto al mayor número de personas posibles por lo que deberemos elegir los comunicadores o influencers no solo por el grado de entrada y que sean muy respetados en la red, sino por su capacidad de distribuir la información a segmentos reducidos de la red a los que de otra manera no podríamos llegar. 
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.4]{./Capitulo1/Imagenes/inter.png}
+		\caption{Intermediación.}
+	\label{inter}
+\end{figure}
+
+Para poder visualizar bien y obtener los nodos principales acorde a esta medida, hemos dado color y tamaño a los nodos por Ranking usando la medida \textbf{Betweenness Centrality}. El resultado podemos verlo en la figura \ref{inter}.
+
+A simple vista podemos ver como el nodo WorldOliveOil es el que más intermedia en la red, pero esto no nos aporta mucha información ya que como veremos en \ref{comunidades} esta es una cuenta que genera mucho contenido y feedback sobre distintas marcas y temáticas dentro del sector del aceite. Pero de esté gráfico si podemos obtener nodos muy interesantes, como por ejemplo los que podemos encontrar en las siguientes figuras \ref{1}, \ref{2} y \ref{3} que representan nodos dentro de la red en los que el flujo de información es el apropiado y que se corresponden con personas físicas (y un blog) que podrían ser muy interesantes para nuestro objetivo. 
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.5]{./Capitulo1/Imagenes/1.png}
+		\caption{Nodo interesante 1.}
+	\label{1}
+\end{figure}
+
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.5]{./Capitulo1/Imagenes/2.png}
+		\caption{Nodo interesante 2.}
+	\label{2}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.5]{./Capitulo1/Imagenes/3.png}
+		\caption{Nodo interesante 3.}
+	\label{3}
+\end{figure}
+
+\subsection{Cercanía}
+
+Esta medida mide como de cohesionados o cercanos están los nodos en un determinado área de la red, aunque no ofrece mucha información, la consideramos interesante ya que nos permite tal y como podemos ver en la figura \ref{cer} cuales son las zonas del nodo más cohesionadas y con mayor número de nodos (usuarios) interactuando sobre la materia, lo cual puede ser útil.
+
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.4]{./Capitulo1/Imagenes/cer.png}
+		\caption{Cercanía.}
+	\label{cer}
+\end{figure}
+
+\section{Detección de comunidades}
+\label{comunidades}
+
+En esta sección, veremos por un lado la detección de comunidades y finalizaremos con el análisis de las mismas. 
+
+\subsection{Obtención comunidades}
+
+Para la detección de comunidades, además del filtrado de visto en la sección \ref{generales}, se ha utilizado un filtrado de grado de entrada superior a 1, es decir, nos quedamos con aquellos nodos (usuarios) que al menos han tenido un RT sobre la temática del AOVE, obviando por tanto aquellos que se dedican a RT sobre la temática generalmente y permitiendo por tanto un análisis de las comunidades de manera más eficiente, al menos, a la hora de chequear su ajuste con la realidad. 
+
+Para el cálculo de comunidades, una vez filatrada la red y calculamos su modularidad y obtenemos por medio de particiones generadas a través de la opción \textbf{Modularity Class} en la sección de \textbf{Apariencia} las diferentes comunidades, tras lo cual tendremos algo como lo que podemos encontrar en la figura \ref{comunidades2}.
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.4]{./Capitulo1/Imagenes/comunidades.png}
+		\caption{Comunidades encontradas.}
+	\label{comunidades2}
+\end{figure}
+
+
+Si analizamos la anterior imagen, podemos ver como tenemos \textbf{7 comunidades distintas}, correspondientes a una modularidad de 0.77, las cuales vamos a intentar analizar en el siguiente punto. 
+
+\subsection{Análisis de comunidades}
+
+Respecto a las comunidades obtenidas en la sección anterior y tras su posterior análisis podemos concluir que hay ciertas comunidades que se adaptan a la realidad y que son muy claras, como por ejemplo:
+
+\begin{enumerate}
+
+\item La comunidad de color marrón: Esta comunidad es muy interesante, en ella están las cuentas relacionadas con la cocina casi todas ellas conectadas a un nodo que corresponde con el user \textbf{recetasdenoe} el cual es muy activo en el sector de la cocina y suele incluir en sus platos AOVE.
+
+\item La comunidad verde agua (derecha): Es una comunidad rara, el algoritmo la genera ya que son gente del sector del AOVE pero muy alejados geográficamente del resto del área, esto es debido a que estos 3 usuarios son de Islas Baleares, mientras que el resto del gráfico corresponden a la península y Andalucía casi en su totalidad. 
+
+\item La comunidad roja: Corresponde con blogs y revistas especializados del sector del aceite casi en su totalidad. Algunos de sus nodos pueden ser muy interesantes para dar respuesta a la pregunta inicial. 
+
+\item La comunidad azul: Engloba casi en su totalidad marcas de aceite, aunque si bien es verdad, en casi todas las comunidades hay alguna marca de aceite reconocida. 
+
+\item La comunidad verde: Engloba personas del sector del AOVE, gente dedicada al marketing gastronómico  generalmente que genera y RT contenido de marcas y blogs reconocidos.
+
+\item La comunidad magenta: Es la más multitudinaria, está generada a través del nodo correspondiente a WorldOliveOil, una cuenta muy reconocida que genera contenido en torno al AOVE pero también está muy pendiente de lo que otras generan y dando feedback a marcas tanto grandes como pequeñas, por lo que sin duda es el elemento central de la red. 
+
+\end{enumerate}
+
+Por contra, estas comunidades como hemos ido diciendo, tienen ciertas inconsistencias irremediables, ya que estamos en una red perteneciente a un sector muy específico y dentro del sector muchas marcas generan contenido sobre la temática, pero bajo ningún concepto darán feedback a la competencia por lo que hace que una marca esté más ligada a una comunidad y otra a otra comunidad en función de la relación que estas tengan con blogs especializados, menciones en revistas, premios o incluso con sus encargados de marketing, que en este caso serían muchos de los nodos (usuarios) de la comunidad verde. 
+
+\section{Visualización}
+\label{visualizacion}
+
+En este apartado se discuten dos opciones de visualización distintas usadas para la realización de la práctica. 
+
+\subsection{Fruchterman Reingold}
+
+Para la visualización de la red se ha utilizado primeramente una visualización basada en el algoritmo de \textit{Fruchterman Reingold} \cite{fruch}. La elección de este método de visualización es que aparte de ser uno de los más extendidos, es muy útil para el proceso que pretendemos llevar a cabo con nuestra practica ya que representa de manera cohesionada a nodos de la red que tienen cierta relación (por ejemplo cuentas afines a una determinada marca en nuestro caso) con la facilidad de estudio que nos permite esto a la hora de descartar posibles influencers, que realmente no lo son. 
+
+Para obtener esta visualización, desde la sección de distribución, o layouts elegimos el algoritmo y ejecutamos. Veremos como nodos menos relevantes se sitúan en el exterior y los que parece tener mas grado de entrada por lo tanto más RTs o menciones, se sitúan en el centro de la red o al menos en el centro de de ciertos núcleos por decirlo de alguna manera. Para favorecer la visualización, en el apartado de apariencia deberemos añadir un atributo de color a las aristas en función de su peso, y a los nodos en función de su grado, de manera que los nodos en color verde oscuro tendrán más interacción en twitter  generando contenido sobre el AOVE. Por último, añadiremos un atributo de tamaño a los nodos en función del grado de entrada, ya que buscamos que los nodos con más grado de entrada sean reconocibles a simple vista. Tal y como vimos en el análisis visto en \ref{generales}, hay ciertos nodos que no forman parte de la componente gigante, y aunque alguna vez emitieron un tweet relacionado con la temática estudiada, nunca tuvieron interacción con otros por lo que nunca serán influencers del sector y son por tanto claros candidatos a ser eliminados de nuestra red, para ello aplicaremos un filtro de componente gigante y aplicaremos el algoritmo de visualización. El resultado podemos verlo en la figura \ref{fruch2:fig}, donde ya podemos obtener  información relevante sobre la red. 
+
+\begin{figure}[h]
+	\centering
+		\includegraphics[scale=0.45]{./Capitulo1/Imagenes/fruch2.png}
+		\caption{Componente gigante con Fruchterman Reingold .}
+	\label{fruch2:fig}
+\end{figure}
+
+Por último, para poder visualizar correctamente los nodos en nuestro caso que de la extracción de twitter solo teníamos el \textbf{ID} y no lo habíamos etiquetado como \textbf{Label}, en laboratorio de datos deberemos copiar los \textbf{ID} a la columna \textbf{Label}, tras lo cual tendremos ya un grafo que nos permite ver quien son a priori los más influyentes de la red con sus respectivas etiquetas.  El grafo final podemos verlo en la figura \ref{fruch3} donde hemos dado el nombre a la etiqueta de manera proporcional al nodo para favorecer su visualización. 
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.4]{./Capitulo1/Imagenes/fruch3.png}
+		\caption{Componente gigante con Fruchterman Reingold y labels .}
+	\label{fruch3}
+\end{figure}
+
+
+\subsection{Forze Atlas }
+\label{atlas}
+
+Aunque Fruchterman Reingold ya nos ofrece una buena visualización de la red, se ha probado también el algoritmo Forze Atlas 2 \cite{forze}, con el fin de intentar desenmarañar el anterior grafo y quedarnos con los componentes principales del mismo. Para ello, hemos usado varios filtros, además del de la componente principal, como por ejemplo que el grado de entrada del nodo sea al menos 1 es decir, que haya sido RT o mencionado alguna vez en relación con la temática con lo que nos quitaremos nodos que aunque pertenezcan a la componente gigante del problema no ofrecen contenido interesante para los demás dentro de la temática. De igual forma que hicimos antes, dibujaremos nodos mayores en cuanto mayor sea el grado de entrada y con colores más cercanos al azul cuanto más sea su grado de salida para favorecer el ver si generan contenido en relación a la temática. El resultado final de la visualización podemos verla en la figura \ref{force} donde ya podríamos obtener información muy interesante a simple vista, aunque esto será algo que veremos en la última sección de la práctica. 
+
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.5]{./Capitulo1/Imagenes/force.png}
+		\caption{Visualización con Force Atlas 2.}
+	\label{force}
+\end{figure}
+
+\section{Conclusiones y discusion}
+\label{conclusiones}
+
+En este último capítulo de la práctica analizaremos los resultados finales para dar respuesta a nuestra pregunta inicial de quienes son los más influyentes dentro del sector de AOVE, y por último discutiremos algunas conclusiones sobre la realización de la práctica que no están ligadas completamente con la pregunta inicial pero que es menester de comentar. 
+
+\subsection{Respuesta a la pregunta}
+
+A lo largo del desarrollo práctico hemos ido dando ciertas pinceladas de nodos interesantes que podrían ser considerados influyentes. Trataremos por tanto de quedarnos con los 5 mejores acorde al conocimiento adquirido durante la realización de la práctica y las necesidades reales de la marca. Para poder discernir entre influyentes, nos centraremos en la visualización del grafo vista en la figura \ref{fruch3}, en ella tenemos representado los nodos que reciben más interacción con un tamaño más grande y con un color azul más intenso en función del grado total, de manera que visualizaremos con un color azul intenso y tamaño grande aquellos nodos que generan mucho contenido sobre el AOVE y además son muy retuiteados o mencionados por otros. Analizando este grafo podemos obtener los siguientes influencers.
+
+\begin{enumerate}
+\item \textbf{RecetasDeNoe}: Sin lugar a dudas es el claro objetivo para nuestra campaña, una cuenta muy viral y que genera contenido interesante e interacción sobre la cocina y el AOVE. En la figura \ref{noe} podemos ver las estadísticas de la cuenta, para darnos cuenta que realmente el proceso de minería de redes no ha fallado al decirnos que este era un usuario importante. Ademas, tal y como vimos en \ref{comunidades} al rededor de este nodo se generaba la comunidad de gente relacionada con la cocina por lo que es muy interesante. 
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.25]{./Capitulo1/Imagenes/noe.png}
+		\caption{Influencer RecetasdeNoe.}
+	\label{noe}
+\end{figure}
+
+\item \textbf{Sano Manjar}:  Es otro de los grandes influyentes de la red tal y como podemos ver en la figura \ref{sano}. Un blog especializado en temas de salud y alimentación que podrá ser un gran aliado para llegar a público objetivo. 
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.25]{./Capitulo1/Imagenes/sano.png}
+		\caption{Influencer SanoManjar.}
+	\label{sano}
+\end{figure}
+
+
+\item \textbf{CoronadeOlivo}: Es una tienda especializada en aceite, tras obtener por medio de la red información de que era un nodo importante con un alto grado de interacción hemos realizado un estudio de la cuenta y hemos visto que es una cuenta que realiza muchos concursos de aceite, por ello suele tener RTs y menciones por lo que este tipo de campañas son muy interesantes para nuestro objetivo. 
+
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.25]{./Capitulo1/Imagenes/corona.png}
+		\caption{Influencer CoronadeOlivo.}
+	\label{corona}
+\end{figure}
+
+\item \textbf{Vero\_ferndz}: Es sin duda un gran descubrimiento. Un nodo que podría pasar desapercibido pero que tiene cierto nivel de interacción ademas de una buena centralidad.Tras analizarlo, hemos podido comprobar que se trata de una periodista especializada en temas de aceite y que colabora con diversos blogs con la correspondiente utilidad que esto podría tener para nuestra marca. 
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.25]{./Capitulo1/Imagenes/vero.png}
+		\caption{Influencer vero\_frndz.}
+	\label{vero}
+\end{figure}
+
+\end{enumerate}
+
+Tras este análisis podemos concluir por tanto que el proceso de minería de redes nos ha ayudado a obtener realmente nodos muy interesantes para nuestra temática y a descartar otros que a priori pueden parecerlo pero en realidad no lo son. 
+
+\subsection{Conclusiones finales}
+
+Además de la respuesta a la pregunta planteada al inicio de la práctica también se han obtenido otras conclusiones interesantes. Por ejemplo, con un proceso como el seguido en esta práctica es muy sencillo trazar comportamientos extraños en una red social, por ejemplo bots que se encargan de generar feedback a cuentas dadas. Por ejemplo, viendo el tamaño de las aristas vemos que hay algunas que salen de lo normal, es decir, son excesivamente grandes, tal y como podemos ver en la figura \ref{bot}. Acabamos de encontrar por tanto un bot que se encarga de RT todo lo referente al AOVE.
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.3]{./Capitulo1/Imagenes/bot.png}
+		\caption{Bot de RTs.}
+	\label{bot}
+\end{figure}
+
+Por otro lado, y a modo de curiosidad, con un análisis de este tipo es muy sencillo encontrar community managers y algunas de sus cuentas. Un nodo que nos ha llamado la atención, es el de la cuenta \textbf{@vanepitina}, ya que ofrecía buenas características para ser influencer. 
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.3]{./Capitulo1/Imagenes/triada.png}
+		\caption{Triadas.}
+	\label{triada}
+\end{figure}
+
+Si analizamos el nodo (figura \ref{triada}), vemos un claro comportamiento de redes de amistad, \textbf{las triadas}, entre esta cuenta \textbf{@gastroleum} y \textbf{@olivarama}. Si accedemos a la cuenta de twitter de \textbf{@vanepitina}, podemos ver en su biografía (figura \ref{vane}) como es la encargada de gestionar las comunidades de esas cuentas y por lo tanto ella misma es la que genera ese feedback entre sus cuentas gestionadas y su perfil personal. 
+
+
+\begin{figure}[H]
+	\centering
+		\includegraphics[scale=0.4]{./Capitulo1/Imagenes/vane.png}
+		\caption{Cuenta de un community manager.}
+	\label{vane}
+\end{figure}
+
+
+
+
+\clearpage
+%---------------------------------------------------
